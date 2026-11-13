@@ -6,19 +6,21 @@
     "zh": "打开网址",
     "en": "Open URL"
   },
-  "version": "1.0.1",
+  "version": "1.1.0",
+  "minWinShun": "0.22.0",
   "description": {
-    "zh": "输入一个网址，回车在默认浏览器中打开。",
-    "en": "Type a web address and press Enter to open it in the default browser."
+    "zh": "原生 EXE 版网址识别，无需安装 Python；输入网址即可在默认浏览器打开。",
+    "en": "Native executable URL detection. No Python installation required."
   },
   "license": "MIT",
   "author": "888bik",
   "homepage": "https://github.com/888bik/winshun-open-url",
   "runtime": {
     "mode": "once",
-    "program": "python",
-    "script": "main.py",
-    "debounceMs": 40
+    "program": "open-url.exe",
+    "timeoutMs": 1200,
+    "debounceMs": 120,
+    "memoryMB": 64
   },
   "commands": [
     {
@@ -28,13 +30,13 @@
         "en": "Open URL"
       },
       "hint": {
-        "zh": "网址",
-        "en": "address"
+        "zh": "输入网址，或输入 url 后跟网址",
+        "en": "Enter a web address, or use url followed by an address"
       },
       "keyword": "url",
       "triggers": [
         {
-          "regex": "^\\s*(?:[hH][tT][tT][pP][sS]?://\\S+|[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}(?::[0-9]{1,5})?(?:[/?#]\\S*)?|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}(?::[0-9]{1,5})?(?:[/?#]\\S*)?|[lL][oO][cC][aA][lL][hH][oO][sS][tT](?::[0-9]{1,5})?(?:[/?#]\\S*)?)\\s*$",
+          "regex": "(?i)^\\s*(?:https?://\\S+|www\\.[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}(?::[0-9]{1,5})?(?:[/?#]\\S*)?|localhost(?::[0-9]{1,5})?(?:[/?#]\\S*)?|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}(?::[0-9]{1,5})?(?:[/?#]\\S*)?|[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.(?:com|net|org|edu|gov|mil|int|info|biz|name|pro|mobi|io|ai|co|me|tv|cc|app|dev|xyz|top|site|online|tech|store|shop|blog|cloud|cn|hk|tw|mo|jp|kr|sg|my|th|vn|in|id|ph|uk|de|fr|es|it|nl|se|no|fi|dk|ch|at|be|pl|ru|ua|tr|us|ca|au|nz|br|mx|ar|za|eu)(?::[0-9]{1,5})?(?:[/?#]\\S*)?)\\s*$",
           "minLength": 4,
           "maxLength": 2048
         }
@@ -51,7 +53,7 @@
       },
       "hint": {
         "zh": "如 deepseek.com。关闭后，只有 http(s):// 或 www. 开头的输入会被识别。",
-        "en": "Such as deepseek.com. When off, only input starting with http(s):// or www. is recognized."
+        "en": "Such as deepseek.com. When off, only http(s):// or www. addresses are recognized."
       },
       "default": true
     }
