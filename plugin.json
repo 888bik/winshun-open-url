@@ -6,11 +6,11 @@
     "zh": "打开网址",
     "en": "Open URL"
   },
-  "version": "1.1.0",
+  "version": "1.2.1",
   "minWinShun": "0.22.0",
   "description": {
-    "zh": "原生 EXE 版网址识别，无需安装 Python；输入网址即可在默认浏览器打开。",
-    "en": "Native executable URL detection. No Python installation required."
+    "zh": "原生 EXE 版网址识别，无需安装 Python；支持从整段文字中提取多个网址，输入网址即可在默认浏览器打开。",
+    "en": "Native executable URL detection. No Python installation required. Extracts multiple URLs from pasted text."
   },
   "license": "MIT",
   "author": "888bik",
@@ -36,7 +36,7 @@
       "keyword": "url",
       "triggers": [
         {
-          "regex": "(?i)^\\s*(?:https?://\\S+|www\\.[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}(?::[0-9]{1,5})?(?:[/?#]\\S*)?|localhost(?::[0-9]{1,5})?(?:[/?#]\\S*)?|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}(?::[0-9]{1,5})?(?:[/?#]\\S*)?|[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.(?:com|net|org|edu|gov|mil|int|info|biz|name|pro|mobi|io|ai|co|me|tv|cc|app|dev|xyz|top|site|online|tech|store|shop|blog|cloud|cn|hk|tw|mo|jp|kr|sg|my|th|vn|in|id|ph|uk|de|fr|es|it|nl|se|no|fi|dk|ch|at|be|pl|ru|ua|tr|us|ca|au|nz|br|mx|ar|za|eu)(?::[0-9]{1,5})?(?:[/?#]\\S*)?)\\s*$",
+          "regex": "(?i)(?:https?://\\S+|\\bwww\\.[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}|\\blocalhost(?::[0-9]{1,5})?(?:[/?#]\\S*)?|\\b[0-9]{1,3}(?:\\.[0-9]{1,3}){3}(?::[0-9]{1,5})?|\\b[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.(?:com|net|org|edu|gov|mil|int|info|biz|name|pro|mobi|io|ai|co|me|tv|cc|app|dev|xyz|top|site|online|tech|store|shop|blog|cloud|cn|hk|tw|mo|jp|kr|sg|my|th|vn|in|id|ph|uk|de|fr|es|it|nl|se|no|fi|dk|ch|at|be|pl|ru|ua|tr|us|ca|au|nz|br|mx|ar|za|eu)(?::[0-9]{1,5})?(?:[/?#]\\S*)?)",
           "minLength": 4,
           "maxLength": 2048
         }

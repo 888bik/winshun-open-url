@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,6 +114,106 @@ func TestBuildItems(t *testing.T) {
 	}
 }
 
+func TestExtractURLs(t *testing.T) {
+	cases := []struct {
+		input string
+		want  []string
+	}{
+		{"看看这个 https://github.com/Thysrael/Horizon 很不错", []string{"https://github.com/Thysrael/Horizon"}},
+		{"参考这两个：https://a.com 和 https://b.com/x?y=1。", []string{"https://a.com", "https://b.com/x?y=1"}},
+		{"muse.ai", []string{"https://muse.ai"}},
+		{"今天天气不错", nil},
+		{"链接是 https://example.com/path。", []string{"https://example.com/path"}},
+		{"https://a.com 和 https://a.com", []string{"https://a.com"}},
+		{"发我邮箱 a@b.com", nil},
+		{"本地服务 http://localhost:3000/api 看一下", []string{"http://localhost:3000/api"}},
+		{"文档见 [Horizon](https://github.com/Thysrael/Horizon) 这一篇", []string{"https://github.com/Thysrael/Horizon"}},
+		{"www.deepseek.com 也可以", []string{"https://www.deepseek.com"}},
+	}
+	for _, c := range cases {
+		got := extractURLs(c.input)
+		if len(got) != len(c.want) {
+			t.Fatalf("extractURLs(%q) = %q, want %q", c.input, got, c.want)
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Fatalf("extractURLs(%q)[%d] = %q, want %q", c.input, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
+func TestExtractURLsIPv6AndTen(t *testing.T) {
+	if got := extractURLs("本机服务 http://[::1]:8080/ 测试"); len(got) != 1 || got[0] != "http://[::1]:8080/" {
+		t.Fatalf("IPv6 extract = %q", got)
+	}
+	var many []string
+	for i := 0; i < 11; i++ {
+		many = append(many, fmt.Sprintf("https://site%d.com", i))
+	}
+	input := strings.Join(many, " ")
+	if got := extractURLs(input); len(got) != 10 || got[9] != "https://site9.com" {
+		t.Fatalf("want at most 10 URLs, got %d", len(got))
+	}
+}
+
+func TestBuildItemsMultiple(t *testing.T) {
+	rows := buildItems("regex", "", "看看 https://a.com 和 https://b.com/x。", nil)
+	if len(rows) != 2 {
+		t.Fatalf("want 2 items, got %d: %#v", len(rows), rows)
+	}
+	if rows[0].ID != "open-url-1" || rows[1].ID != "open-url-2" {
+		t.Fatalf("ids = %q, %q", rows[0].ID, rows[1].ID)
+	}
+	if rows[0].Score != 95 || rows[1].Score != 94 {
+		t.Fatalf("scores = %d, %d", rows[0].Score, rows[1].Score)
+	}
+	if rows[1].Title != "https://b.com/x" || rows[1].Copy != "https://b.com/x" {
+		t.Fatalf("row 1 = %#v", rows[1])
+	}
+	if rows := buildItems("regex", "", "今天天气不错", nil); len(rows) != 0 {
+		t.Fatalf("plain text regex must return no results: %#v", rows)
+	}
+	if rows := buildItems("keyword", "hello world", "", nil); len(rows) != 1 || rows[0].Valid == nil || *rows[0].Valid {
+		t.Fatalf("keyword mode keeps hint rows: %#v", rows)
+	}
+	if rows := buildItems("keyword", "看这个 https://a.com 和 muse.ai", "", nil); len(rows) != 2 || rows[0].Title != "https://a.com" || rows[1].Title != "https://muse.ai" {
+		t.Fatalf("keyword mode extracts from whole query: %#v", rows)
+	}
+	if rows := buildItems("regex", "", "看看 deepseek.com", map[string]any{"bareDomains": false}); len(rows) != 0 {
+		t.Fatalf("bareDomains off must suppress bare domains: %#v", rows)
+	}
+	if rows := buildItems("regex", "", "看看 www.deepseek.com", map[string]any{"bareDomains": false}); len(rows) != 1 || rows[0].Title != "https://www.deepseek.com" {
+		t.Fatalf("bareDomains off must keep www. URLs: %#v", rows)
+	}
+}
+
+func TestSiteIcons(t *testing.T) {
+	// 网址结果的 Icon 必须是 "site:" + 该条归一化后的完整网址。
+	rows := buildItems("regex", "", "muse.com", nil)
+	if len(rows) != 1 || rows[0].Icon != "site:"+rows[0].Title {
+		t.Fatalf("single result icon = %q, want site:%q", rows[0].Icon, rows[0].Title)
+	}
+	// 多网址时每条的 Icon 各对各的网址。
+	rows = buildItems("regex", "", "对比 https://a.com 和 https://b.com/x 和 www.deepseek.com", nil)
+	if len(rows) != 3 {
+		t.Fatalf("want 3 rows, got %d", len(rows))
+	}
+	for _, r := range rows {
+		if r.Icon != "site:"+r.Title {
+			t.Fatalf("row %s icon = %q, want site:%q", r.Title, r.Icon, r.Title)
+		}
+	}
+	if rows[0].Icon == rows[1].Icon {
+		t.Fatalf("distinct rows must carry distinct icons: %q", rows[0].Icon)
+	}
+	// keyword 模式的 hint 行保持地球 glyph 不变。
+	rows = buildItems("keyword", "hello world", "", nil)
+	if len(rows) != 1 || rows[0].Icon != icon {
+		t.Fatalf("keyword hint icon = %q, want %q", rows[0].Icon, icon)
+	}
+}
+
 func TestManifestRegexGate(t *testing.T) {
 	b, err := os.ReadFile("plugin.json")
 	if err != nil {
@@ -135,12 +236,13 @@ func TestManifestRegexGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range []string{"https://www.deepseek.com/", "http://a.b", "HTTPS://X.com", "www.deepseek.com", "deepseek.com", "a.cn", "localhost", "localhost:3000/x", "192.168.0.1:80", "github.io/foo?bar=1#x", "https://中文.com", "www.example.zip"} {
+	for _, input := range []string{"https://www.deepseek.com/", "http://a.b", "HTTPS://X.com", "www.deepseek.com", "deepseek.com", "a.cn", "localhost", "localhost:3000/x", "192.168.0.1:80", "github.io/foo?bar=1#x", "https://中文.com", "www.example.zip",
+		"看看这个 https://github.com/Thysrael/Horizon 很不错", "参考这两个：https://a.com 和 https://b.com/x?y=1。", "muse.ai", "链接是 https://example.com/path。", "发我邮箱 a@b.com", "本地服务 http://localhost:3000/api 看一下", "文档见 [Horizon](https://github.com/Thysrael/Horizon) 这一篇", "www.deepseek.com 也可以"} {
 		if !rx.MatchString(input) {
 			t.Errorf("trigger should match %q", input)
 		}
 	}
-	for _, input := range []string{"notepad", "hello world", "deepseek com", "报告 2026", "C:\\Users", "1.5", "", "ab", "main.py", "readme.md", "run.sh", "archive.zip", "report.pdf"} {
+	for _, input := range []string{"notepad", "hello world", "deepseek com", "报告 2026", "C:\\Users", "1.5", "", "ab", "main.py", "readme.md", "run.sh", "archive.zip", "report.pdf", "今天天气不错"} {
 		if rx.MatchString(input) {
 			t.Errorf("trigger should ignore %q", input)
 		}

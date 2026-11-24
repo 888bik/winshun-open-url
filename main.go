@@ -403,6 +403,125 @@ func hintRows(text string) []item {
 	return []item{row}
 }
 
+// extractURLs 扫描整段文本，按出现顺序返回其中所有网址（归一化后去重，最多 10 个）。
+// 自动识别模式用：裸域名按现有白名单校验（explicit=false）。
+func extractURLs(text string) []string {
+	found := extractAll(text, false, true)
+	urls := make([]string, 0, len(found))
+	for _, f := range found {
+		urls = append(urls, f.url)
+	}
+	return urls
+}
+
+const maxURLs = 10
+
+type extracted struct {
+	url   string
+	added bool // normalize 替用户补了协议
+}
+
+func isTrailingPunct(r rune) bool {
+	switch r {
+	case '.', ',', ';', ':', '!', '?', ')', ']', '}', '\'', '"',
+		'。', '，', '、', '；', '：', '！', '？', '）', '】', '」', '』', '》':
+		return true
+	}
+	return false
+}
+
+// trimTrailingPunct 去掉候选网址尾部粘上的标点（连续剥离，末尾的 ... 也一并去掉）。
+func trimTrailingPunct(s string) string {
+	for s != "" {
+		r, size := utf8.DecodeLastRuneInString(s)
+		if !isTrailingPunct(r) {
+			return s
+		}
+		s = s[:len(s)-size]
+	}
+	return s
+}
+
+func isHostStart(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '['
+}
+
+// schemeIndex 返回 "http://" 或 "https://"（不分大小写）在词元里的起点，找不到返回 -1。
+func schemeIndex(lower string) int {
+	hi := strings.Index(lower, "https://")
+	lo := strings.Index(lower, "http://")
+	switch {
+	case hi >= 0 && (lo < 0 || hi < lo):
+		return hi
+	case lo >= 0:
+		return lo
+	}
+	return -1
+}
+
+// tokenCandidates 从一个词元（以空白或汉字为界的一段 ASCII 文本）里提取网址候选。
+func tokenCandidates(token string, explicit, allowBare bool) []extracted {
+	accept := func(cand string) []extracted {
+		u, added := normalize(cand, explicit, allowBare)
+		if u == "" {
+			return nil
+		}
+		return []extracted{{u, added}}
+	}
+	lower := strings.ToLower(token)
+	if k := schemeIndex(lower); k >= 0 {
+		// 带协议：从协议处截到词元尾，去掉尾部标点后交给 normalize。
+		return accept(trimTrailingPunct(token[k:]))
+	}
+	// 裸域名 / www. / localhost / IPv4 / [IPv6]：去掉词元头部不可能起头的字符和尾部标点。
+	runes := []rune(token)
+	start := 0
+	for start < len(runes) && !isHostStart(runes[start]) {
+		start++
+	}
+	cand := trimTrailingPunct(string(runes[start:]))
+	if cand == "" || strings.Contains(cand, "@") {
+		// 邮箱整体跳过：a@b.com 不把 b.com 提取出来。
+		return nil
+	}
+	return accept(cand)
+}
+
+// extractAll 按词元扫描整段文本。空白和汉字都是分隔符，网址遇到汉字即断。
+func extractAll(text string, explicit, allowBare bool) []extracted {
+	var out []extracted
+	seen := map[string]struct{}{}
+	runes := []rune(text)
+	for i := 0; i < len(runes); {
+		if runes[i] >= 0x80 || unicode.IsSpace(runes[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(runes) && runes[j] < 0x80 && !unicode.IsSpace(runes[j]) {
+			j++
+		}
+		for _, u := range tokenCandidates(string(runes[i:j]), explicit, allowBare) {
+			if _, dup := seen[u.url]; dup {
+				continue
+			}
+			seen[u.url] = struct{}{}
+			out = append(out, u)
+			if len(out) >= maxURLs {
+				return out
+			}
+		}
+		i = j
+	}
+	return out
+}
+
+// siteIcon 返回网址结果的 site: 图标。Win顺 自己向该网站取一次 favicon 并缓存一个月；
+// 插件不联网、不下载、不写缓存，只负责写对字段。取不到时 Win顺 回落显示默认图标。
+func siteIcon(url string) string {
+	return "site:" + url
+}
+
 func buildItems(trigger, query, whole string, settings map[string]any) []item {
 	explicit := trigger == "keyword"
 	text := whole
@@ -413,30 +532,44 @@ func buildItems(trigger, query, whole string, settings map[string]any) []item {
 	if v, ok := settings["bareDomains"].(bool); ok {
 		allowBare = v
 	}
-	url, added := normalize(text, explicit, allowBare)
-	if url == "" {
+	if utf8.RuneCountInString(text) > maxLen {
 		if explicit {
 			return hintRows(text)
 		}
 		return []item{}
 	}
-	subtitle := "Enter 在默认浏览器中打开 · Ctrl+C 复制网址"
-	if added {
-		scheme := "HTTPS"
-		if i := strings.IndexByte(url, ':'); i >= 0 {
-			scheme = strings.ToUpper(url[:i])
+	found := extractAll(text, explicit, allowBare)
+	if len(found) == 0 {
+		if explicit {
+			return hintRows(text)
 		}
-		subtitle = fmt.Sprintf("未写协议，按 %s 打开 · Enter 在浏览器中打开", scheme)
+		return []item{}
 	}
-	return []item{{
-		ID:       "open-url",
-		Title:    url,
-		Subtitle: subtitle,
-		Icon:     icon,
-		Score:    95,
-		Open:     map[string]any{"url": url},
-		Copy:     url,
-	}}
+	items := make([]item, 0, len(found))
+	for i, f := range found {
+		subtitle := "Enter 在默认浏览器中打开 · Ctrl+C 复制网址"
+		if f.added {
+			scheme := "HTTPS"
+			if k := strings.IndexByte(f.url, ':'); k >= 0 {
+				scheme = strings.ToUpper(f.url[:k])
+			}
+			subtitle = fmt.Sprintf("未写协议，按 %s 打开 · Enter 在浏览器中打开", scheme)
+		}
+		score := 95 - i
+		if score < 85 {
+			score = 85
+		}
+		items = append(items, item{
+			ID:       fmt.Sprintf("open-url-%d", i+1),
+			Title:    f.url,
+			Subtitle: subtitle,
+			Icon:     siteIcon(f.url),
+			Score:    score,
+			Open:     map[string]any{"url": f.url},
+			Copy:     f.url,
+		})
+	}
+	return items
 }
 
 func readSettings(raw string) map[string]any {
